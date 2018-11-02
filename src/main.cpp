@@ -144,7 +144,7 @@ void prepare_stixel_gen_obj(StixelGenerator &stixelGen, int &width, int &height,
   params.min_disp = 0;
   params.max_disp = disp;
   // Stixel
-  params.stixel_width = 10;
+  params.stixel_width = 5;
   params.max_depth = 100;
   params.depth_res = 0.25;
 
