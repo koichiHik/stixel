@@ -10,11 +10,47 @@
 class Stixel
 {
 public:
-  int u;        // Stixel Center
+
+  Stixel() :
+    left_u(0), 
+    width(0), 
+    vT(0), 
+    vB(0), 
+    disp(0.0)
+  {}
+
+  Stixel(const Stixel &obj) :
+    left_u(obj.left_u),
+    width(obj.width),
+    vT(obj.vT),
+    vB(obj.vB),
+    disp(obj.disp)
+  {}
+
+  Stixel(int left_u, int width, int vT, int vB, double disp) :
+    left_u(left_u),
+    width(width),
+    vT(vT),
+    vB(vB),
+    disp(disp)
+  {}
+
+  Stixel &operator=(const Stixel &obj) {
+    if (this != &obj) {
+      this->left_u = obj.left_u;
+      this->width = obj.width;
+      this->vT = obj.vT;
+      this->vB = obj.vB;
+      this->disp = obj.disp;
+    }
+    return *this;
+  }
+
+  int left_u;   // Stixel Center
+  int width;    // Stixel Width
   int vT;       // Stixel Top Y
   int vB;       // Stixel Bottom Y
-  int width;    // Stixel Width
-  double disp;   // Stixel Avg Disparity
+  double disp;  // Stixel Avg Disparity
 };
 
 
@@ -41,7 +77,7 @@ public:
   int max_disp;
 
   // Stixel
-  int stixelWidth;
+  int stixel_width;
   int max_depth;
 
   double depth_res;
@@ -49,15 +85,17 @@ public:
   // Cost Image
   double obj_height;
   double below_under_gnd;
-  double road_dev_cost;
-  double obst_dev_cost;
-  int ignr_drow_low;
-  int ignr_drow_up;
+  double pix_thr_alpha;
+  double pix_thr_intercept;
 
   // Dynamic Programming
-  int dv_horizon;
   double space_smooth_fac;
   double upper_spatial_dist;
+
+  // Height Segmentation
+  double dZu;
+  double upper_bnd_smooth_fac;
+  double Nz;
 
   // Camera
   CameraParams camParam; 
@@ -88,9 +126,9 @@ public:
 
   void initialize(const StixelGeneratorParams &params);
   
-  void generate_stixel(const cv::Mat &disp, const std::vector<GroundModel> gnd_models, std::vector<Stixel> &stixels);
+  void generate_stixel(const cv::Mat &disp, const std::vector<GroundModel> &gnd_models, std::vector<Stixel> &stixels);
 
-  void get_fs_boundary(std::vector<int> &fs_boundary);
+  void get_fs_boundary(std::vector<int> &fs_boundary_in_v, std::vector<int> &fs_boundary_in_disp, std::vector<int> &upper_bound);
   
   void get_u_disp_img(cv::Mat &u_disp_u8);
 
@@ -112,15 +150,25 @@ private:
 
   void convert_mat_2_u8(const cv::Mat &any_mat, cv::Mat &mat_u8);
 
-  void calculate_fs_boundary(const cv::Mat &cost_f32, std::vector<int> &fs_boundary);
+  void calculate_fs_boundary(const cv::Mat &u_disp_foregnd_s32, const GroundModel &gnd_model, std::vector<int> &fs_boundary, std::vector<int> &fs_boundary_in_disp, std::vector<double> &fs_boundary_in_meter);
 
-  void calculate_stixel_height(const cv::Mat &cost_f32, const std::vector<int> &fs_boundary, std::vector<int> &upper_boundary);
+  void calculate_upper_boundary(const cv::Mat &cost_img_f32, const std::vector<double> &fs_boundary_in_meter, std::vector<int> &upper_boundary);
 
-  void create_stixels(const cv::Mat &disp_u8, const std::vector<int> &fs_boundary, const std::vector<int> &upper_boundary, std::vector<Stixel> stixels);
+  void generate_membership_img(const cv::Mat &disp_u8, const std::vector<int> &fs_boundary_in_v, const std::vector<int> &fs_boundary_in_disp, cv::Mat &membership_img_f32);
 
-  void generate_score_img(const cv::Mat &disp_u8, const GroundModel &gnd_model, cv::Mat &score_f32);
+  void generate_cost_img(const cv::Mat &membership_img_f32, const std::vector<int> &fs_boundary_in_v, cv::Mat &cost_img_f32);
+
+  float calc_vote_value(int disp, int fs_disp, double fs_z);
+
+  void calculate_stixel_height(const cv::Mat &disp_u8, const std::vector<int> &fs_boundary_in_v, const std::vector<int> &fs_boundary_in_disp, std::vector<int> &upper_boundary);
+
+  void create_stixels(const cv::Mat &disp_u8, const std::vector<int> &fs_boundary, const std::vector<int> &upper_boundary, std::vector<Stixel> &stixels);
 
   void calculate_disp_v_line_base_coeff(const CameraParams &param, double &ddisp_dv, double &disp_intercept);
+
+  void generate_stixel_elems(std::vector<Stixel> &stixels);
+
+  void initialize_stixel_elems(std::vector<Stixel> &stixels);
 
 private:
 
@@ -128,15 +176,19 @@ private:
 
   StixelGeneratorParams param;
 
-  int v_horizon;
-
   cv::Mat denoised_disp_u8, u_disp_s32, u_disp_u8, depth_f32, depth_u8, score_f32, score_u8;
 
   cv::Mat u_disp_s32_foregnd, u_disp_u8_foregnd;
 
   cv::Mat dp_score_tbl_f32, dp_path_tbl_s32;
 
-  std::vector<int> fs_boundary, disp_search_rng, lower_disp, upper_boundary;
+  cv::Mat member_ship_img_f32, member_ship_img_u8, cost_img_f32, cost_img_u8, integral_cost1_f32, integral_cost2_f32;
+
+  std::vector<int> fs_boundary_in_disp, fs_boundary_in_v, disp_search_rng, lower_disp, upper_boundary;
+
+  std::vector<double> fs_boundary_in_meter;
+
+  std::vector<Stixel> stixels;
 
 };
 

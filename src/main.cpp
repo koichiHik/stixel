@@ -79,14 +79,14 @@ void generate_sgbm_obj(cv::Ptr<cv::StereoSGBM> &sgbm_ptr, int disp) {
 
   int min_disp = 0;
   int max_disp = disp;
-  int block_size = 5;
+  int block_size = 11;
   int P1 = 1000;
-  int P2 = 3000;
+  int P2 = 10000;
   int disp12_max_diff = 0;
   int pre_filt_cap = 0;
   int uniquness_ratio = 0;
-  int speckle_wnd_size = 0;
-  int speckle_range = 0;
+  int speckle_wnd_size = 3;
+  int speckle_range = 1;
   int mode = cv::StereoSGBM::MODE_SGBM_3WAY;
 
   sgbm_ptr = cv::StereoSGBM::create(min_disp, max_disp, block_size, P1, P2, 
@@ -144,23 +144,24 @@ void prepare_stixel_gen_obj(StixelGenerator &stixelGen, int &width, int &height,
   params.min_disp = 0;
   params.max_disp = disp;
   // Stixel
-  params.stixelWidth = 5;
+  params.stixel_width = 10;
   params.max_depth = 100;
   params.depth_res = 0.25;
+
   // Cost Image
-  params.obj_height = 0.20;
+  params.obj_height = 0.3;
   params.below_under_gnd = 0.50;
-  params.road_dev_cost = 1;
-  params.obst_dev_cost = 10;
-  //params.ignr_drow_low = 40;
-  params.ignr_drow_low = 0;
-  //params.ignr_drow_up = 80;
-  params.ignr_drow_up = 0;
+  params.pix_thr_alpha = 0.5;
+  params.pix_thr_intercept = 2;
 
   // Dynamic Programming
-  params.dv_horizon = -20;
-  params.space_smooth_fac = 10.0;
+  params.space_smooth_fac = 50.0;
   params.upper_spatial_dist = 100;
+
+  // Height Segmentation
+  params.dZu = 3.0;
+  params.upper_bnd_smooth_fac = 50.0;
+  params.Nz = 0.1;
 
   // Camera
   params.camParam.f = 1245.0;
@@ -195,12 +196,26 @@ void remove_neg_value(cv::Mat &src_f32) {
 
 }
 
-void draw_fs_boundary(const std::vector<int> fs_boundary, cv::Mat &img) {
+void draw_boundary(const std::vector<int> &fs_boundary, const std::vector<int> &upper_bound,cv::Mat &img) {
 
   img = 0;
 
   for (int u = 0; u < img.cols; u++) {
     cv::line(img, cv::Point(u, fs_boundary[u]), cv::Point(u, img.rows-1), cv::Scalar(0, 0, 200), 1,4);
+    cv::circle(img, cv::Point(u, upper_bound[u]), 2, cv::Scalar(0, 200, 200));
+  }
+
+}
+
+void draw_stixels(const std::vector<Stixel> &stixels, cv::Mat &img) {
+
+  img = 0;
+
+  for (auto elem : stixels) {
+
+    cv::rectangle(img, cv::Point(elem.left_u, elem.vT), cv::Point(elem.left_u + elem.width, elem.vB), cv::Scalar(255, 255, 255), 2, CV_AA);
+    cv::rectangle(img, cv::Point(elem.left_u+1, elem.vT+1), cv::Point(elem.left_u + elem.width-1, elem.vB-1), cv::Scalar(0, 0, 255), -1, CV_AA);
+
   }
 
 }
@@ -242,8 +257,10 @@ int main(int argc, char **argv) {
   cv::Mat left_8, right_8, disp, disp_u8, v_disp, hough_vote_u8, u_disp, score_u8, u_disp_resized, u_disp_foregnd, u_disp_foregnd_resized;
   cv::Mat disp_rgb(height, width, CV_8UC3);
   cv::Mat free_spc(height, width, CV_8UC3);
+  cv::Mat stixel_img(height, width, CV_8UC3);
   cv::Mat left_rgb(height, width, CV_8UC3);
   cv::Mat left_fused(height, width, CV_8UC4);
+  cv::Mat left_fused_2(height, width, CV_8UC4);
 
   for (auto itr = img_path.begin(); itr != img_path.end(); itr++) {
     convert_to_8U(itr->first, itr->second, left_8, right_8);
@@ -263,20 +280,23 @@ int main(int argc, char **argv) {
 
     // Stixel Generation
     std::vector<Stixel> stixels;
-    std::vector<int> fs_boundary;
+    std::vector<int> fs_boundary_in_v, fs_boundary_in_disp, upper_boundary;
     stixelGen.generate_stixel(disp_u8, gnd_models, stixels);
     stixelGen.get_u_disp_img(u_disp);
     stixelGen.get_u_disp_foregnd(u_disp_foregnd);
     cv::resize(u_disp, u_disp_resized, cv::Size(), 1.0, 5.5);
     cv::resize(u_disp_foregnd, u_disp_foregnd_resized, cv::Size(), 1.0, 5.5);
     stixelGen.get_score_img(score_u8);
-    stixelGen.get_fs_boundary(fs_boundary);
-    draw_fs_boundary(fs_boundary, free_spc);
+    stixelGen.get_fs_boundary(fs_boundary_in_v, fs_boundary_in_disp, upper_boundary);
+    draw_boundary(fs_boundary_in_v, upper_boundary, free_spc);
+    draw_stixels(stixels, stixel_img);
     cv::addWeighted(left_rgb, 0.9, free_spc, 0.3, 0.0, left_fused);
+    cv::addWeighted(left_rgb, 0.9, stixel_img, 0.3, 0.0, left_fused_2);
 
     // Free Space Calculation.
     cv::imshow("Left", left_8);
     cv::imshow("Left with FS", left_fused);
+    cv::imshow("Left with Stixel", left_fused_2);
     cv::imshow("Right", right_8);
     cv::imshow("Disparity", disp_rgb); 
     cv::imshow("V Disparity", v_disp);
